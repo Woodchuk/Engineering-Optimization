@@ -50,8 +50,6 @@ def Cost(xp):
         gmsh.model.occ.addBox(0.0, -l/2, h, w/2, l, t, 4)
 # coax center
         gmsh.model.occ.addCylinder(0.0, s1, -lc, 0.0, 0.0, lc+h, cc, 5, 2.0*np.pi)
-# patch center gnd via
-        #gmsh.model.occ.addCylinder(0.0, 0.0, 0.0, 0.0, 0.0, h, cc, 6, 2.0*np.pi)
 
 # coax shield
         gmsh.model.occ.addCylinder(0.0, s1, -lc, 0.0, 0.0, lc, rc, 7)
@@ -59,14 +57,12 @@ def Cost(xp):
         gmsh.model.occ.intersect([(3,7)], [(3,8)], 9, removeObject=True, removeTool=True)
         gmsh.model.occ.fuse([(3,3)], [(3,9)], 10, removeObject=True, removeTool=True)
 # cutout internal boundaries
-        #gmsh.model.occ.cut([(3,10)], [(3,4),(3,5),(3,6)], 11, removeObject=True, removeTool=True)
         gmsh.model.occ.cut([(3,10)], [(3,4),(3,5)], 11, removeObject=True, removeTool=True)
 
         gmsh.option.setNumber('Mesh.MeshSizeMin', ls)
         gmsh.option.setNumber('Mesh.MeshSizeMax', lm)
         gmsh.option.setNumber('Mesh.Algorithm', 6)
         gmsh.option.setNumber('Mesh.Algorithm3D', 1)
-#        gmsh.option.setNumber('Mesh.MshFileVersion', 2.2)
         gmsh.option.setNumber('Mesh.MshFileVersion', 4.1)
         gmsh.option.setNumber('Mesh.Format', 1)
         gmsh.option.setNumber('Mesh.MinimumCirclePoints', 36)
@@ -91,7 +87,6 @@ def Cost(xp):
         gmsh.model.geo.addPoint(w/4, 0.0, h+t, lp, 1001)
         gmsh.model.geo.addPoint(w/4, l/4, h+t, lp, 1002)
         gmsh.model.geo.synchronize()
-#        sf1 = gmsh.model.occ.fragment(fce1, [(0,1000),(0,1001), (0,1002)], -1, True, True)
         gmsh.model.occ.synchronize()
         print(fce1)
         fce2 = gmsh.model.getEntitiesInBoundingBox(-eps, -l/2-eps, h-eps, w/2+eps, l/2+eps, h+eps, 2)
@@ -103,7 +98,6 @@ def Cost(xp):
            gmsh.model.mesh.embed(0, [1000, 1001, 1002], 2, tt[1])
         for tt in fce2:
            gmsh.model.mesh.embed(0, [1003, 1004, 1005], 2, tt[1])
-#        sf2 = gmsh.model.occ.fragment(fce2, [(0,1003),(0,1004), (0,1005)], -1, True, True)
         print(fce2)
         gmsh.model.occ.remove(fce1)
         gmsh.model.occ.remove(fce2)
@@ -113,7 +107,6 @@ def Cost(xp):
         gmsh.model.mesh.optimize("Relocate3D", niter=5)
         gmsh.model.mesh.generate(3)
         gmsh.write("SimplePatch.msh")
-#        gmsh.fltk.run()
         gmsh.finalize()
         msh = meshio.read("SimplePatch.msh")
         for cell in msh.cells:
@@ -243,14 +236,6 @@ def Cost(xp):
     fp = dolfin.File("EField_i.pvd")
     fp << u1_i
 
-#fp = File('WaveFile.pvd')
-
-#ut = u1_r.copy(deepcopy=True)
-#for i in range(50):
-#    ut.vector().zero()
-#    ut.vector().axpy(cos(pi * i / 25.0 + pi / 2.0), u1_i.vector())
-#    ut.vector().axpy(cos(pi * i / 25.0), u1_r.vector()) 
-#    fp << (ut, i)
     H = dolfin.interpolate(h_src, V) # Get input field
     P =  dolfin.assemble((-dolfin.dot(u1_r,dolfin.cross(dolfin.curl(u1_i),n))+dolfin.dot(u1_i,dolfin.cross(dolfin.curl(u1_r),n))) * ds(2))
     P_refl = dolfin.assemble((-dolfin.dot(u1_i,dolfin.cross(dolfin.curl(u1_r), n)) + dolfin.dot(u1_r, dolfin.cross(dolfin.curl(u1_i), n))) * ds(1))
@@ -263,8 +248,6 @@ def Cost(xp):
 
 #Optimization
 x0 = np.array([5.0, 0.675])
-#bnds = np.array([[5.0925, 5.15], [0.675, 0.675]])
-#res = opt.brute(Cost, bnds, Ns=1, full_output=True)
 res = opt.minimize(Cost, x0, method='Nelder-Mead', options={'maxiter':100, 'disp':True, 'fatol':0.003})
 print(res)
 sys.exit(0)
