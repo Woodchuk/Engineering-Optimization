@@ -5,16 +5,14 @@ import gmsh
 from mpi4py import MPI as nMPI
 import meshio
 import dolfin
-
-x_old = np.array([0.0, 0.0, 0.0])
-rho_old = 0.0
+# We set up the mesh generation and finite element solution as prt of the 
+# objective function Cost(x)
 
 def Cost(xp):
-    global x_old, rho_old
     comm = nMPI.COMM_WORLD
     mpi_rank = comm.Get_rank()
 
-    x1, x2 = xp
+    x1, x2 = xp #The two variables (length and feed offset)
 
     rs = 8.0  # radiation boundary radius
     l = x1  # Patch length
@@ -27,15 +25,17 @@ def Cost(xp):
     cc = 0.107 #Coax center conductor 50 ohm air diel
     eps = 1.0e-4
     tol = 1.0e-6
-    eta = 377.0
-    eps_c = 1.0
+    eta = 377.0 # vacuum intrinsic wave impedance
+    eps_c = 1.0 # dielectric permittivity
 
     k0 = 2.45 * 2.0 * np.pi / 30.0 # Frequency in GHz
-    ls = 0.025
+    ls = 0.025 #Mesh density parameters for GMSH
     lm = 0.8
     lw = 0.06
     lp = 0.3
 
+    # Run GMSH only on one MPI processor (process 0).
+    # We use the GMSH Python interface to generate the geometry and mesh objects
     if mpi_rank == 0:
         print("x[0] = {0:<f}, x[1] = {1:<f} ".format(xp[0], xp[1]))
         print("length = {0:<f}, width = {1:<f}, feed offset = {2:<f}".format(l, w, s1))
@@ -108,6 +108,8 @@ def Cost(xp):
         gmsh.model.mesh.generate(3)
         gmsh.write("SimplePatch.msh")
         gmsh.finalize()
+# Mesh generation is finished.  We now use Meshio to translate GMSH mesh to xdmf file for 
+# importation into Fenics FE solver
         msh = meshio.read("SimplePatch.msh")
         for cell in msh.cells:
             if  cell.type == "tetra":
@@ -121,7 +123,7 @@ def Cost(xp):
                            cell_data={"VolumeRegions":[tetra_data]})
 
         meshio.write("mesh.xdmf", tetra_mesh)
-
+# Here we import the mesh into Fenics
     mesh = dolfin.Mesh()
     with dolfin.XDMFFile("mesh.xdmf") as infile:
         infile.read(mesh)
@@ -129,7 +131,7 @@ def Cost(xp):
     with dolfin.XDMFFile("mesh.xdmf") as infile:
         infile.read(mvc, "VolumeRegions")
     cf = dolfin.cpp.mesh.MeshFunctionSizet(mesh, mvc)
-
+# The boundary classes for the FE solver
     class PEC(dolfin.SubDomain):
         def inside(self, x, on_boundary):
             return on_boundary
@@ -178,7 +180,7 @@ def Cost(xp):
     dx_subst = dolfin.Measure('dx', domain = mesh, subdomain_data = cf, subdomain_id = 2)
 # with source and sink terms
     u0 = dolfin.Constant((0.0, 0.0, 0.0)) #PEC definition
-
+# The incident field sources (E and H-fields)
     h_src = dolfin.Expression(('-(x[1] - s) / (2.0 * pi * (pow(x[0], 2.0) + pow(x[1] - s,2.0)))', 'x[0] / (2.0 * pi *(pow(x[0],2.0) + pow(x[1] - s,2.0)))', 0.0), degree = 2,  s = s1)
     e_src = dolfin.Expression(('x[0] / (2.0 * pi * (pow(x[0], 2.0) + pow(x[1] - s,2.0)))', 'x[1] / (2.0 * pi *(pow(x[0],2.0) + pow(x[1] - s,2.0)))', 0.0), degree = 2, s = s1)
     Rrad = dolfin.Expression(('sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2])'), degree = 2)
@@ -229,13 +231,13 @@ def Cost(xp):
 
     dolfin.solve(a == L, u1, bcs, solver_parameters = {'linear_solver' : 'mumps'}) 
 
-
+#Here we write files of the field solution for inspection
     u1_r, u1_i = u1.split(True)
     fp = dolfin.File("EField_r.pvd")
     fp << u1_r
     fp = dolfin.File("EField_i.pvd")
     fp << u1_i
-
+# Compute power relationships and reflection coefficient
     H = dolfin.interpolate(h_src, V) # Get input field
     P =  dolfin.assemble((-dolfin.dot(u1_r,dolfin.cross(dolfin.curl(u1_i),n))+dolfin.dot(u1_i,dolfin.cross(dolfin.curl(u1_r),n))) * ds(2))
     P_refl = dolfin.assemble((-dolfin.dot(u1_i,dolfin.cross(dolfin.curl(u1_r), n)) + dolfin.dot(u1_r, dolfin.cross(dolfin.curl(u1_i), n))) * ds(1))
@@ -243,11 +245,12 @@ def Cost(xp):
     print("Integrated power on port 2:", P/(2.0 * k0 * eta))
     print("Incident power at port 1:", P_inc)
     print("Integrated reflected power on port 1:", P_inc - P_refl / (2.0 * k0 * eta))
+#Reflection coefficient is returned as cost function
     rho_old = (P_inc - P_refl / (2.0 * k0 * eta)) / P_inc #Fraction of incident power reflected as objective function
     return rho_old
 
 #Optimization
-x0 = np.array([5.0, 0.675])
+x0 = np.array([5.0, 0.675]) # Starting point for optimization
 res = opt.minimize(Cost, x0, method='Nelder-Mead', options={'maxiter':100, 'disp':True, 'fatol':0.003})
 print(res)
 sys.exit(0)
